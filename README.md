@@ -36,18 +36,19 @@ permissions:
 
 jobs:
   threat-model:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted   # runner with Ollama available on localhost:11434
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # required for diff extraction
       - uses: thehipsterciso/hc-maestro-action@v0.1
         with:
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          ollama-base-url: 'http://localhost:11434'
+          model: 'ollama/qwen3:14b'
           fail-on-severity: high
 ```
 
-Add `ANTHROPIC_API_KEY` to your repository secrets. Done.
+Requires a self-hosted GitHub Actions runner on a machine where Ollama is running. See [self-hosted runner setup](https://docs.github.com/en/actions/hosting-your-own-runners).
 
 ---
 
@@ -78,16 +79,7 @@ Add `ANTHROPIC_API_KEY` to your repository secrets. Done.
 
 ## Inference Backends
 
-### Claude API (recommended for CI)
-
-```yaml
-- uses: thehipsterciso/hc-maestro-action@v0.1
-  with:
-    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-    model: claude-sonnet-4-6
-```
-
-### Ollama (local / air-gapped)
+### Ollama (default — self-hosted runner)
 
 ```yaml
 - uses: thehipsterciso/hc-maestro-action@v0.1
