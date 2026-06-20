@@ -1,0 +1,176 @@
+# hc-maestro Semgrep Rules — MAESTRO L3+L4
+#
+# Deterministic static detection to complement LLM analysis.
+# These rules catch the highest-confidence, lowest-false-positive patterns.
+#
+# License: Apache-2.0
+# Copyright 2026 Thomas Jones (thehipsterciso)
+# Attribution: https://github.com/thehipsterciso/hc-maestro-spec
+
+rules:
+
+  # ── L3-003: Persistent Memory Injection (Zombie Agent) ──────────────────
+  # Taint: external HTTP fetch → persistent memory store, no provenance gate.
+  - id: maestro-l3-003-http-to-vector-store
+    mode: taint
+    pattern-sources:
+      - pattern: requests.get(...)
+      - pattern: requests.post(...)
+      - pattern: httpx.get(...)
+      - pattern: httpx.post(...)
+      - pattern: httpx.AsyncClient().get(...)
+      - pattern: urllib.request.urlopen(...)
+      - pattern: aiohttp.ClientSession().get(...)
+    pattern-sinks:
+      - pattern: $COLL.add(documents=..., ...)
+      - pattern: $COLL.upsert(documents=..., ...)
+      - pattern: $COLL.add(...)
+      - pattern: $COLL.upsert(...)
+      - pattern: $DB.execute("INSERT INTO ...", ...)
+      - pattern: $DB.executemany("INSERT INTO ...", ...)
+    message: >
+      MAESTRO-L3-003 [CRITICAL]: Content from an external HTTP call flows into
+      a persistent memory store with no content provenance gate in between.
+      This is the Zombie Agent vector (arXiv:2602.15654): content fetched in a
+      benign session is stored, retrieved in a future session, and interpreted
+      as a trusted instruction. Add a provenance_gate() call between the fetch
+      and the store that classifies origin as 'external_web' and routes to an
+      explicit review queue rather than auto-committing.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      maestro-id: MAESTRO-L3-003
+      maestro-layer: 3
+      maestro-severity: critical
+      cwe: CWE-349
+      owasp-asi: "ASI06:2026"
+      references:
+        - https://arxiv.org/abs/2602.15654
+      attribution: "Thomas Jones (thehipsterciso) — https://github.com/thehipsterciso/hc-maestro-spec"
+
+  # ── L3-005: Safety Constraint Modification via Self-Update ──────────────
+  # Detect direct assignment to known safety-critical field names.
+  - id: maestro-l3-005-safety-field-write
+    patterns:
+      - pattern: $OBJ.$FIELD = $VALUE
+      - metavariable-regex:
+          metavariable: $FIELD
+          regex: >-
+            (rollback_threshold|approval_gate|safety_gate|performance_threshold|
+            eval_threshold|pass_threshold|fail_threshold|max_delta|score_threshold|
+            safety_constraint|immutable_core|gate_enabled|auto_approve)
+    message: >
+      MAESTRO-L3-005 [CRITICAL]: Direct write to safety-critical field '$FIELD'.
+      If this is inside a self_update() execution path, it may allow an agent to
+      disable or weaken its own safety constraints. Safety gate logic, approval
+      gate thresholds, and rollback thresholds must reside in the Immutable Core
+      (a separate process outside the agent's tool scope) — not in agent-editable
+      configuration. Verify this write cannot be triggered via a self_update call.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      maestro-id: MAESTRO-L3-005
+      maestro-layer: 3
+      maestro-severity: critical
+      cwe: CWE-284
+      references:
+        - https://arxiv.org/abs/2509.26354
+        - https://arxiv.org/abs/2504.11703
+      attribution: "Thomas Jones (thehipsterciso) — https://github.com/thehipsterciso/hc-maestro-spec"
+
+  # ── L3-006: Unbounded Tool Execution Loop ───────────────────────────────
+  # Detect: LLM API call inside while loop with no visible max_steps guard.
+  - id: maestro-l3-006-unbounded-llm-loop
+    patterns:
+      - pattern: |
+          while $COND:
+            ...
+            $CLIENT.messages.create(...)
+            ...
+      - pattern-not: |
+          while $COND:
+            ...
+            if $STEPS >= $MAX:
+              ...
+      - pattern-not: |
+          while $COND:
+            ...
+            if $STEPS > $MAX:
+              ...
+    message: >
+      MAESTRO-L3-006 [MEDIUM]: LLM API call inside a while loop with no
+      visible iteration limit. Step repetition is the most common single
+      failure mode in multi-agent systems (15.7% of failures, MAST taxonomy,
+      arXiv:2503.13657). Add: (1) a max_steps guard that raises an exception
+      when exceeded, (2) a step-repetition detector that halts if the same
+      tool is called with the same inputs N consecutive times.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      maestro-id: MAESTRO-L3-006
+      maestro-layer: 3
+      maestro-severity: medium
+      cwe: CWE-835
+      references:
+        - https://arxiv.org/abs/2503.13657
+      attribution: "Thomas Jones (thehipsterciso) — https://github.com/thehipsterciso/hc-maestro-spec"
+
+  # ── L4-002: Agent Credential Exposure ───────────────────────────────────
+  # Detect hardcoded API key string literals.
+  - id: maestro-l4-002-hardcoded-anthropic-key
+    patterns:
+      - pattern: $VAR = "sk-ant-..."
+    pattern-not:
+      - pattern: $VAR = ""
+    message: >
+      MAESTRO-L4-002 [HIGH]: Hardcoded Anthropic API key detected. API keys
+      committed to version control are compromised immediately upon push.
+      Load credentials from environment variables (os.environ.get()) or a
+      secrets manager. Rotate this key via https://console.anthropic.com now.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      maestro-id: MAESTRO-L4-002
+      maestro-layer: 4
+      maestro-severity: high
+      cwe: CWE-798
+      owasp-asi: "ASI03:2026"
+      attribution: "Thomas Jones (thehipsterciso) — https://github.com/thehipsterciso/hc-maestro-spec"
+
+  - id: maestro-l4-002-hardcoded-openai-key
+    patterns:
+      - pattern: $VAR = "sk-..."
+    pattern-not:
+      - pattern: $VAR = "sk-ant-..."
+      - pattern: $VAR = ""
+    message: >
+      MAESTRO-L4-002 [HIGH]: Hardcoded API key string ('sk-...') detected.
+      Load credentials from environment variables or a secrets manager.
+      Treat any committed key as compromised and rotate immediately.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      maestro-id: MAESTRO-L4-002
+      maestro-layer: 4
+      maestro-severity: high
+      cwe: CWE-798
+      owasp-asi: "ASI03:2026"
+      attribution: "Thomas Jones (thehipsterciso) — https://github.com/thehipsterciso/hc-maestro-spec"
+
+  # ── L4-006: Insecure Default Deployment Configuration ───────────────────
+  - id: maestro-l4-006-debug-true
+    patterns:
+      - pattern: DEBUG = True
+    message: >
+      MAESTRO-L4-006 [MEDIUM]: DEBUG=True detected. In a production deployment
+      this exposes full stack traces, internal file paths, and schema details
+      to any caller on error. This must not be present in production configuration.
+      Use environment-specific config files and never copy development configs to prod.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      maestro-id: MAESTRO-L4-006
+      maestro-layer: 4
+      maestro-severity: medium
+      cwe: CWE-215
+      attribution: "Thomas Jones (thehipsterciso) — https://github.com/thehipsterciso/hc-maestro-spec"

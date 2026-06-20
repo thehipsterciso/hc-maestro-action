@@ -1,0 +1,106 @@
+name: 'hc-maestro Threat Model Analysis'
+description: >
+  MAESTRO-as-Code threat modeling CI gate for agentic AI systems.
+  Analyzes PR diffs against the MAESTRO threat taxonomy (L3+L4 default).
+  Outputs SARIF 2.1.0 for GitHub Code Scanning and a PR review comment.
+author: 'Thomas Jones (thehipsterciso)'
+
+inputs:
+  anthropic-api-key:
+    description: 'Anthropic API key for Claude inference. If omitted, requires ollama-base-url.'
+    required: false
+    default: ''
+  ollama-base-url:
+    description: 'Ollama base URL for local inference (e.g., http://localhost:11434).'
+    required: false
+    default: ''
+  model:
+    description: >
+      Model to use for analysis. Examples:
+        claude-sonnet-4-6 (default, requires anthropic-api-key)
+        claude-haiku-4-5-20251001 (faster, cheaper)
+        ollama/qwen3:14b (requires ollama-base-url)
+    required: false
+    default: 'claude-sonnet-4-6'
+  layers:
+    description: 'Comma-separated MAESTRO layers to analyze.'
+    required: false
+    default: '3,4'
+  severity-threshold:
+    description: 'Minimum severity to include in output (critical|high|medium|low|informational).'
+    required: false
+    default: 'medium'
+  sarif-output:
+    description: 'Output path for the SARIF 2.1.0 findings file.'
+    required: false
+    default: 'hc-maestro-findings.sarif'
+  post-pr-comment:
+    description: 'Post findings as a PR review comment. Skipped if not in a PR context.'
+    required: false
+    default: 'true'
+  fail-on-severity:
+    description: >
+      Fail the workflow step if any finding at or above this severity is detected.
+      Set to 'none' to never fail (report-only mode).
+    required: false
+    default: 'high'
+  spec-path:
+    description: >
+      Path to a custom maestro-spec.yaml. If empty, uses the bundled v0.1.0 spec.
+      Use this to pin a specific spec version or provide a custom threat catalog.
+    required: false
+    default: ''
+
+outputs:
+  sarif-path:
+    description: 'Absolute path to the generated SARIF file.'
+    value: ${{ steps.analyze.outputs.sarif-path }}
+  finding-count:
+    description: 'Total number of findings at or above severity-threshold.'
+    value: ${{ steps.analyze.outputs.finding-count }}
+  critical-count:
+    description: 'Number of critical-severity findings.'
+    value: ${{ steps.analyze.outputs.critical-count }}
+  high-count:
+    description: 'Number of high-severity findings.'
+    value: ${{ steps.analyze.outputs.high-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      shell: bash
+      run: pip install --quiet anthropic pyyaml jsonschema requests
+
+    - name: Run MAESTRO threat analysis
+      id: analyze
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        OLLAMA_BASE_URL: ${{ inputs.ollama-base-url }}
+        HC_MODEL: ${{ inputs.model }}
+        HC_LAYERS: ${{ inputs.layers }}
+        HC_SEVERITY_THRESHOLD: ${{ inputs.severity-threshold }}
+        HC_SARIF_OUTPUT: ${{ inputs.sarif-output }}
+        HC_POST_PR_COMMENT: ${{ inputs.post-pr-comment }}
+        HC_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
+        HC_SPEC_PATH: ${{ inputs.spec-path }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: python "${{ github.action_path }}/src/main.py"
+
+    - name: Upload SARIF to Code Scanning
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-output }}
+        category: hc-maestro
+      continue-on-error: true
+
+branding:
+  icon: 'shield'
+  color: 'red'

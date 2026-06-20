@@ -1,0 +1,45 @@
+hc-maestro-action — MAESTRO-as-Code GitHub Action
+Copyright 2026 Thomas Jones
+
+Attribution: Thomas Jones (thehipsterciso)
+GitHub: https://github.com/thehipsterciso/hc-maestro-action
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CODE LICENSE (Apache-2.0)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at:
+
+  https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREAT SPECIFICATION LICENSE (CC BY 4.0)
+
+This action bundles the hc-maestro-spec threat catalog
+(maestro-spec.yaml), which is licensed under CC BY 4.0.
+
+Required attribution for any use of the bundled spec:
+
+  "MAESTRO-as-Code by Thomas Jones (thehipsterciso) —
+   https://github.com/thehipsterciso/hc-maestro-spec"
+
+If you fork or extend this action, the NOTICE file and attribution
+requirement must be preserved in all copies and substantial portions
+of the software.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RELATIONSHIP TO MAESTRO (CSA)
+
+MAESTRO (Multi-Agent Environment Safety and Threat Response Orchestration)
+is a framework published by the Cloud Security Alliance (February 2025).
+
+This project is an independent implementation. It is not affiliated with
+or endorsed by the Cloud Security Alliance.
