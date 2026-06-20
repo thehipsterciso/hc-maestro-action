@@ -20,7 +20,7 @@ inputs:
         ollama/llama3.1:8b (default, requires ollama-base-url)
         ollama/qwen3:14b (requires ollama-base-url)
     required: false
-    default: 'ollama/llama3.1:8b'
+    default: 'ollama/qwen3:14b'
   layers:
     description: 'Comma-separated MAESTRO layers to analyze.'
     required: false
