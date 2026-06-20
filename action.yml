@@ -17,11 +17,10 @@ inputs:
   model:
     description: >
       Model to use for analysis. Examples:
-        claude-sonnet-4-6 (default, requires anthropic-api-key)
-        claude-haiku-4-5-20251001 (faster, cheaper)
+        ollama/llama3.1:8b (default, requires ollama-base-url)
         ollama/qwen3:14b (requires ollama-base-url)
     required: false
-    default: 'claude-sonnet-4-6'
+    default: 'ollama/llama3.1:8b'
   layers:
     description: 'Comma-separated MAESTRO layers to analyze.'
     required: false
