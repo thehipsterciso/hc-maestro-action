@@ -4,6 +4,7 @@ hc-maestro GitHub Action — main entry point.
 Orchestrates: diff extraction → MAESTRO threat analysis → SARIF output → PR comment.
 """
 import base64
+import fnmatch
 import gzip
 import json
 import os
@@ -25,6 +26,7 @@ def main():
     post_comment = os.environ.get("HC_POST_PR_COMMENT", "true").lower() == "true"
     fail_on_severity = os.environ.get("HC_FAIL_ON_SEVERITY", "high")
     spec_path = os.environ.get("HC_SPEC_PATH", "").strip() or None
+    suppressions_path = os.environ.get("HC_SUPPRESSIONS_PATH", ".maestro-suppressions.yml")
 
     print("[hc-maestro] Loading threat catalog...")
     catalog = load_catalog(spec_path=spec_path, layers=layers)
@@ -41,6 +43,16 @@ def main():
     print(f"[hc-maestro] Analyzing {len(diff):,} chars of diff against {len(catalog)} threats...")
     findings = analyze_diff(diff=diff, catalog=catalog, layers=layers)
     print(f"[hc-maestro] Raw findings: {len(findings)}")
+
+    # Acknowledged baseline: matching findings are excluded from the gate but still
+    # reported (with their reason) in the PR comment — an auditable accept, not a mask.
+    suppressions = _load_suppressions(suppressions_path)
+    findings, suppressed = _partition_suppressed(findings, suppressions)
+    if suppressed:
+        print(
+            f"[hc-maestro] Suppressed {len(suppressed)} finding(s) via "
+            f"'{suppressions_path}' (acknowledged; excluded from the gate)."
+        )
 
     threshold_idx = (
         _SEVERITY_ORDER.index(severity_threshold)
@@ -64,6 +76,8 @@ def main():
                 f"### hc-maestro Threat Analysis\n\n"
                 f"✅ No MAESTRO threats detected at or above `{severity_threshold}` severity."
             )
+        if suppressed:
+            comment += _suppressed_section(suppressed)
         _post_pr_comment(comment)
 
     _write_step_outputs(sarif_output, filtered)
@@ -88,6 +102,82 @@ def main():
                 f"fail-on-severity='{fail_on_severity}'."
             )
             sys.exit(1)
+
+
+def _load_suppressions(path):
+    """Load an acknowledged-findings baseline. Each entry requires threat_id + reason."""
+    if not path or not os.path.exists(path):
+        return []
+    try:
+        import yaml
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        print(f"[hc-maestro] Could not read suppressions '{path}': {e}")
+        return []
+    if isinstance(data, dict):
+        entries = data.get("suppressions", [])
+    elif isinstance(data, list):
+        entries = data
+    else:
+        entries = []
+    valid = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        if not e.get("threat_id") or not e.get("reason"):
+            print(f"[hc-maestro] Ignoring suppression without threat_id + reason: {e}")
+            continue
+        valid.append(e)
+    return valid
+
+
+def _matching_suppression(finding, suppressions):
+    for s in suppressions:
+        if s.get("threat_id") != finding.get("threat_id"):
+            continue
+        file_glob = s.get("file")
+        if file_glob and not fnmatch.fnmatch(finding.get("file", ""), file_glob):
+            continue
+        return s
+    return None
+
+
+def _partition_suppressed(findings, suppressions):
+    """Split findings into (active, suppressed) using the baseline."""
+    if not suppressions:
+        return findings, []
+    active, suppressed = [], []
+    for f in findings:
+        match = _matching_suppression(f, suppressions)
+        if match:
+            suppressed.append({**f, "_reason": match["reason"]})
+        else:
+            active.append(f)
+    return active, suppressed
+
+
+def _suppressed_section(suppressed):
+    """Markdown section listing acknowledged findings + reasons (auditable, not hidden)."""
+    lines = [
+        "",
+        "---",
+        "",
+        f"#### 🔕 Suppressed (acknowledged) — {len(suppressed)}",
+        "",
+        "Excluded from the gate via the suppressions baseline:",
+        "",
+    ]
+    for f in suppressed:
+        tid = f.get("threat_id", "")
+        sev = f.get("severity", "informational")
+        loc = f.get("file", "")
+        line = f.get("line", "")
+        title = f.get("title", "")
+        reason = str(f.get("_reason", "")).strip()
+        lines.append(f"- **{tid}** ({sev}) `{loc}:{line}` — {title}")
+        lines.append(f"  - _Reason:_ {reason}")
+    return "\n".join(lines)
 
 
 def _get_pr_diff():

@@ -58,6 +58,16 @@ inputs:
       fails the step (it is no longer silently swallowed).
     required: false
     default: 'true'
+  suppressions-path:
+    description: >
+      Path (relative to the repo) to a YAML baseline of acknowledged findings.
+      Each entry needs a `threat_id`, an optional `file` glob, and a required
+      `reason`. Matching findings are excluded from the fail-on-severity gate but
+      still listed (with their reason) in the PR comment — an auditable way to
+      accept verified false positives or risks without masking. Missing file = no
+      suppressions.
+    required: false
+    default: '.maestro-suppressions.yml'
 
 outputs:
   sarif-path:
@@ -96,6 +106,7 @@ runs:
         HC_POST_PR_COMMENT: ${{ inputs.post-pr-comment }}
         HC_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
         HC_SPEC_PATH: ${{ inputs.spec-path }}
+        HC_SUPPRESSIONS_PATH: ${{ inputs.suppressions-path }}
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
