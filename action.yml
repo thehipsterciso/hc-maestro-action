@@ -76,31 +76,13 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    # Self-hosted runners have no GitHub-hosted tool cache. actions/setup-python
-    # otherwise defaults to /Users/runner/... (or /opt/hostedtoolcache) and fails
-    # with a permission error. If neither tool-cache var is set, point it at a
-    # writable dir under the runner work root so setup-python works everywhere.
-    - name: Prepare tool cache (self-hosted compatibility)
-      shell: bash
-      run: |
-        set -euo pipefail
-        if [ -z "${AGENT_TOOLSDIRECTORY:-}" ] && [ -z "${RUNNER_TOOL_CACHE:-}" ]; then
-          base="${RUNNER_WORKSPACE:-${RUNNER_TEMP:-$PWD}}"
-          tooldir="$(cd "$base/.." 2>/dev/null && pwd || echo "$base")/_tool"
-          mkdir -p "$tooldir"
-          echo "AGENT_TOOLSDIRECTORY=$tooldir" >> "$GITHUB_ENV"
-          echo "Configured self-hosted tool cache: $tooldir"
-        fi
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install dependencies
-      shell: bash
-      run: pip install --quiet anthropic pyyaml jsonschema requests
-
+    # Provision Python via uv rather than actions/setup-python. The prebuilt
+    # macOS python-versions binaries are hardcoded to /Users/runner/hostedtoolcache
+    # and fail with "mkdir: /Users/runner: Permission denied" on self-hosted macOS
+    # runners whose user isn't `runner` (and AGENT_TOOLSDIRECTORY does not override
+    # it). uv installs a relocatable Python under the user's home and runs the
+    # analysis in an isolated, ephemeral environment (--no-project so the consumer
+    # repo's own pyproject is never picked up).
     - name: Run MAESTRO threat analysis
       id: analyze
       shell: bash
@@ -115,7 +97,15 @@ runs:
         HC_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
         HC_SPEC_PATH: ${{ inputs.spec-path }}
         GITHUB_TOKEN: ${{ github.token }}
-      run: python "${{ github.action_path }}/src/main.py"
+      run: |
+        set -euo pipefail
+        if ! command -v uv >/dev/null 2>&1; then
+          echo "::error::uv not found on PATH. Install it before this action (e.g. astral-sh/setup-uv, or 'brew install uv' on a self-hosted runner)."
+          exit 1
+        fi
+        uv run --python 3.11 --no-project \
+          --with anthropic --with pyyaml --with jsonschema --with requests \
+          python "${{ github.action_path }}/src/main.py"
 
     # Conditional, not masked: upload only when requested (code scanning available).
     # No continue-on-error — when enabled, a real upload failure fails the step
