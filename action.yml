@@ -49,6 +49,15 @@ inputs:
       Use this to pin a specific spec version or provide a custom threat catalog.
     required: false
     default: ''
+  upload-sarif:
+    description: >
+      Upload findings to GitHub Code Scanning (SARIF). Requires code scanning to be
+      enabled — i.e. a public repo or GitHub Advanced Security. Set to 'false' for
+      private repos without GHAS; the gate then enforces via the PR comment and
+      fail-on-severity exit code instead. When 'true', a genuine upload failure
+      fails the step (it is no longer silently swallowed).
+    required: false
+    default: 'true'
 
 outputs:
   sarif-path:
@@ -67,6 +76,22 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    # Self-hosted runners have no GitHub-hosted tool cache. actions/setup-python
+    # otherwise defaults to /Users/runner/... (or /opt/hostedtoolcache) and fails
+    # with a permission error. If neither tool-cache var is set, point it at a
+    # writable dir under the runner work root so setup-python works everywhere.
+    - name: Prepare tool cache (self-hosted compatibility)
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -z "${AGENT_TOOLSDIRECTORY:-}" ] && [ -z "${RUNNER_TOOL_CACHE:-}" ]; then
+          base="${RUNNER_WORKSPACE:-${RUNNER_TEMP:-$PWD}}"
+          tooldir="$(cd "$base/.." 2>/dev/null && pwd || echo "$base")/_tool"
+          mkdir -p "$tooldir"
+          echo "AGENT_TOOLSDIRECTORY=$tooldir" >> "$GITHUB_ENV"
+          echo "Configured self-hosted tool cache: $tooldir"
+        fi
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -92,13 +117,15 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
       run: python "${{ github.action_path }}/src/main.py"
 
+    # Conditional, not masked: upload only when requested (code scanning available).
+    # No continue-on-error — when enabled, a real upload failure fails the step
+    # instead of being silently swallowed.
     - name: Upload SARIF to Code Scanning
-      if: always()
+      if: ${{ inputs.upload-sarif == 'true' && steps.analyze.outputs.sarif-path != '' }}
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: ${{ inputs.sarif-output }}
         category: hc-maestro
-      continue-on-error: true
 
 branding:
   icon: 'shield'
